@@ -89,7 +89,6 @@ def threaded(c, addr):
             
 def main():
     host = ""
-    
     port = 12345
     
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -112,5 +111,4 @@ def main():
     
 if __name__ == '__main__':
     main()
-    
     ## To run, open terminal and type "python server.py"
