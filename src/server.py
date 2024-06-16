@@ -2,15 +2,17 @@ import socket
 from _thread import *
 import threading
 
-# chat_rooms = {'id_1': [], 'id_2': []}
+# chat_rooms = {'id_1': [client1, client2], 'id_2': []}
+CHAT_ROOM_LIMIT = 2
 chat_rooms = {}
+chat_rooms_private = {}
 
-def enter_room(c, addr, current_room_id):
+def enter_room(c, addr, rooms, current_room_id):
     stop_message = ''
     
     if current_room_id != None:
         c.send(f"You've been added to chat room {current_room_id}. Write 'exit' to disconnect from the chat room and 'disconnect' to disconnect from the server".encode())
-        clients_list = chat_rooms[current_room_id]
+        clients_list = rooms[current_room_id]
             
         while True:
             data = c.recv(1024).decode()
@@ -49,25 +51,53 @@ def threaded(c, addr):
                 c.send(f"{list(chat_rooms.keys())} \n".encode())
                 
             elif choice == '2': # Create a new chat room
-                chat_id = str(len(chat_rooms)+1)
-                chat_rooms[chat_id] = [c]
-                current_room_id = chat_id
-                c.send(f"Created new chat room {current_room_id}".encode())
-                stop_message = enter_room(c, addr, current_room_id)
-                if stop_message == 'exit':
-                    current_room_id = None
-                elif stop_message == 'disconnect':
-                    break
+                while True:
+                    c.send("Enter the chat room id: ".encode())
+                    current_room_id = c.recv(1024).decode()
+                    c.send("Is the chat room private? y/n".encode())
+                    priv = c.recv(1024).decode()
+                    
+                    if priv == 'y':
+                        rooms = chat_rooms_private
+                    else:
+                        rooms = chat_rooms
+                        
+                    if current_room_id in rooms:
+                        c.send("The room already exists. Do you want to give a different room id? y/n".encode())
+                        keep_going = c.recv(1024).decode()
+                        if keep_going != 'y':
+                            current_room_id = None
+                            break
+                    else:
+                        break
+                
+                if current_room_id:
+                    rooms[current_room_id] = [c]
+                    c.send(f"Created new chat room {current_room_id}".encode())
+                    stop_message = enter_room(c, addr, rooms, current_room_id)
+                    if stop_message == 'exit':
+                        current_room_id = None
+                    elif stop_message == 'disconnect':
+                        break
                 
             elif choice == '3': # Join an existing chat room
                 c.send("Enter the chat room id: ".encode())
                 chat_id = c.recv(1024).decode()
-                if chat_id not in chat_rooms.keys():
+                all_rooms = {**chat_rooms_private, **chat_rooms}
+                
+                if chat_id not in all_rooms.keys():
                     c.send("The chat room does not exist. ".encode())
-                else:    
-                    chat_rooms[chat_id].append(c)
+                elif len(all_rooms[chat_id]) == CHAT_ROOM_LIMIT:
+                    c.send("Chat room limit reached. ".encode())
+                else:   
                     current_room_id = chat_id
-                    stop_message = enter_room(c, addr, current_room_id)
+                    if current_room_id in chat_rooms:
+                        rooms = chat_rooms
+                    elif current_room_id in chat_rooms_private:
+                        rooms = chat_rooms_private
+                    
+                    rooms[current_room_id].append(c)   
+                    stop_message = enter_room(c, addr, rooms, current_room_id)
                     if stop_message == 'exit':
                         current_room_id = None
                     elif stop_message == 'disconnect':

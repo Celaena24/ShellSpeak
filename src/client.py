@@ -25,7 +25,7 @@ def main():
         receive_thread.start()
         
         while True:
-            message = input("->")
+            message = input()
             s.send(message.encode())
             if message == 'disconnect':
                 break
