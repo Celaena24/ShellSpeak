@@ -1,36 +1,109 @@
 import socket
 from _thread import *
 import threading
+import pymongo
+from datetime import datetime
+import os
+import json
+
 
 # chat_rooms = {'id_1': [client1, client2], 'id_2': []}
 CHAT_ROOM_LIMIT = 2
 chat_rooms = {}
 chat_rooms_private = {}
+client = pymongo.MongoClient("mongodb://localhost:27017/")
+db = client["chat_db"]
+
+############################ Handling Config files
+
+CONFIG_FILE = 'config.json'
+
+def load_config():
+    if os.path.exists(CONFIG_FILE):
+        with open(CONFIG_FILE, 'r') as file:
+            return json.load(file)
+    return {}
+
+def save_config(config):
+    with open(CONFIG_FILE, 'w') as file:
+        json.dump(config, file)
+
+def get_username(user_id):
+    config = load_config()
+    return config.get(user_id)
+
+def save_username(user_id, username):
+    config = load_config()
+    config[user_id] = username
+    save_config(config)
+
+
+
+
+###################################### Saving chat history 
+
+
+def save_chat_message(room_id, user, message):
+    col = db[f"chat_history_{room_id}"]
+    chat_message = {
+        "timestamp": datetime.now(),
+        "user": user,
+        "message": message
+    }
+    col.insert_one(chat_message)
+    
+    
+def get_chat_history(room_id):
+    chat = db[f"chat_history_{room_id}"]
+    messages = chat.find().sort("timestamp")
+    return list(messages)
+
+
 
 def enter_room(c, addr, rooms, current_room_id):
     stop_message = ''
     
     if current_room_id != None:
         c.send(f"You've been added to chat room {current_room_id}. Write 'exit' to disconnect from the chat room and 'disconnect' to disconnect from the server".encode())
+        
+        c.send("\nEnter your user ID: ".encode())
+        user_id = c.recv(1024).decode()
+        user = get_username(user_id)
+        if not user:
+            c.send("\nEnter your username: ".encode())
+            user = c.recv(1024).decode()
+            save_username(user_id, user)
+            c.send(f"Welcome {user}!".encode())
+        else:
+            c.send(f"Welcome back, {user}!".encode())
+            
+        # Display previous chat history
+        history = get_chat_history(current_room_id)
+        for msg in history:
+            timestamp = msg["timestamp"].strftime("%Y-%m-%d %H:%M:%S")
+            c.send(f"\n[{timestamp}] {msg['user']}: {msg['message']}".encode())
+            
         clients_list = rooms[current_room_id]
             
         while True:
-            data = c.recv(1024).decode()
-            if data == 'disconnect' or data == 'exit':
-                stop_message = data
+            message = c.recv(1024).decode()
+            if message == 'disconnect' or message == 'exit':
+                stop_message = message
                 c.send("You have left the chat room. Bye!".encode())
                 # print_lock.release()
                 break
             
+            save_chat_message(current_room_id, user, message)
             for client in clients_list:
                 if client != c:
-                    client.send(f"{addr[1]}: {data}".encode())
+                    client.send(f"{addr[1]}: {message}".encode())
             
         clients_list.remove(c)   
     return stop_message
     
 
 def threaded(c, addr):
+    
     current_room_id = None
     try:
         while True:
@@ -74,6 +147,7 @@ def threaded(c, addr):
                 if current_room_id:
                     rooms[current_room_id] = [c]
                     c.send(f"Created new chat room {current_room_id}".encode())
+                    
                     stop_message = enter_room(c, addr, rooms, current_room_id)
                     if stop_message == 'exit':
                         current_room_id = None
