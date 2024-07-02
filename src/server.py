@@ -3,8 +3,8 @@ from _thread import *
 import threading
 import pymongo
 from datetime import datetime
-import os
-import json
+from config import get_username, save_username
+
 
 
 # chat_rooms = {'id_1': [client1, client2], 'id_2': []}
@@ -14,34 +14,9 @@ chat_rooms_private = {}
 client = pymongo.MongoClient("mongodb://localhost:27017/")
 db = client["chat_db"]
 
-############################ Handling Config files
-
-CONFIG_FILE = 'config.json'
-
-def load_config():
-    if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, 'r') as file:
-            return json.load(file)
-    return {}
-
-def save_config(config):
-    with open(CONFIG_FILE, 'w') as file:
-        json.dump(config, file)
-
-def get_username(user_id):
-    config = load_config()
-    return config.get(user_id)
-
-def save_username(user_id, username):
-    config = load_config()
-    config[user_id] = username
-    save_config(config)
 
 
-
-
-###################################### Saving chat history 
-
+################ Saving chat history ##################
 
 def save_chat_message(room_id, user, message):
     col = db[f"chat_history_{room_id}"]
@@ -59,6 +34,7 @@ def get_chat_history(room_id):
     return list(messages)
 
 
+################ Entering room ##################
 
 def enter_room(c, addr, rooms, current_room_id):
     stop_message = ''
@@ -101,6 +77,9 @@ def enter_room(c, addr, rooms, current_room_id):
         clients_list.remove(c)   
     return stop_message
     
+
+
+################ Starting a new thread ##################
 
 def threaded(c, addr):
     
@@ -189,7 +168,10 @@ def threaded(c, addr):
         print("Closing client socket.")
         print(f"Bye {addr[1]}")
         c.close()
-        
+
+
+
+################ Setting up the server and accepting client requests ##################
             
 def main():
     host = ""
