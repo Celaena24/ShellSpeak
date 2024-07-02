@@ -34,6 +34,7 @@ def get_chat_history(room_id):
     return list(messages)
 
 
+
 ################ Entering room ##################
 
 def enter_room(c, addr, rooms, current_room_id):
@@ -42,6 +43,8 @@ def enter_room(c, addr, rooms, current_room_id):
     if current_room_id != None:
         c.send(f"You've been added to chat room {current_room_id}. Write 'exit' to disconnect from the chat room and 'disconnect' to disconnect from the server".encode())
         
+        
+        # Check for user_id and save username
         c.send("\nEnter your user ID: ".encode())
         user_id = c.recv(1024).decode()
         user = get_username(user_id)
@@ -53,6 +56,7 @@ def enter_room(c, addr, rooms, current_room_id):
         else:
             c.send(f"Welcome back, {user}!".encode())
             
+            
         # Display previous chat history
         history = get_chat_history(current_room_id)
         for msg in history:
@@ -60,13 +64,16 @@ def enter_room(c, addr, rooms, current_room_id):
             c.send(f"\n[{timestamp}] {msg['user']}: {msg['message']}".encode())
             
         clients_list = rooms[current_room_id]
-            
+        
+        
+        # Messaging starts
         while True:
             message = c.recv(1024).decode()
+            
+            #exiting chat room
             if message == 'disconnect' or message == 'exit':
                 stop_message = message
                 c.send("You have left the chat room. Bye!".encode())
-                # print_lock.release()
                 break
             
             save_chat_message(current_room_id, user, message)
@@ -75,6 +82,7 @@ def enter_room(c, addr, rooms, current_room_id):
                     client.send(f"{addr[1]}: {message}".encode())
             
         clients_list.remove(c)   
+           
     return stop_message
     
 
@@ -97,7 +105,7 @@ def threaded(c, addr):
             
             choice = c.recv(1024).decode()
             
-        
+
             if choice == '1': # List all existing chat rooms
                 c.send("Listing existing chat rooms".encode())
                 c.send(f"{list(chat_rooms.keys())} \n".encode())
@@ -180,7 +188,6 @@ def main():
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.bind((host, port))
     print("socket binded to port", port)
-    
     
     s.listen(5) 
     print("socket is listening")       
