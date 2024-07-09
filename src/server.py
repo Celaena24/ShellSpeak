@@ -3,94 +3,23 @@ from _thread import *
 import threading
 import pymongo
 from datetime import datetime
-from config import get_username, save_username
+from chat_room_functions import ChatRoomAgent as cra
 
 
 
-# chat_rooms = {'id_1': [client1, client2], 'id_2': []}
-CHAT_ROOM_LIMIT = 2
-chat_rooms = {}
-chat_rooms_private = {}
+
+
 client = pymongo.MongoClient("mongodb://localhost:27017/")
 db = client["chat_db"]
+CHAT_ROOM_LIMIT = 10
 
-
-
-################ Saving chat history ##################
-
-def save_chat_message(room_id, user, message):
-    col = db[f"chat_history_{room_id}"]
-    chat_message = {
-        "timestamp": datetime.now(),
-        "user": user,
-        "message": message
-    }
-    col.insert_one(chat_message)
-    
-    
-def get_chat_history(room_id):
-    chat = db[f"chat_history_{room_id}"]
-    messages = chat.find().sort("timestamp")
-    return list(messages)
-
-
-
-################ Entering room ##################
-
-def enter_room(c, addr, rooms, current_room_id):
-    stop_message = ''
-    
-    if current_room_id != None:
-        c.send(f"You've been added to chat room {current_room_id}. Write 'exit' to disconnect from the chat room and 'disconnect' to disconnect from the server".encode())
-        
-        
-        # Check for user_id and save username
-        c.send("\nEnter your user ID: ".encode())
-        user_id = c.recv(1024).decode()
-        user = get_username(user_id)
-        if not user:
-            c.send("\nEnter your username: ".encode())
-            user = c.recv(1024).decode()
-            save_username(user_id, user)
-            c.send(f"Welcome {user}!".encode())
-        else:
-            c.send(f"Welcome back, {user}!".encode())
+agent = cra(db, CHAT_ROOM_LIMIT)
             
             
-        # Display previous chat history
-        history = get_chat_history(current_room_id)
-        for msg in history:
-            timestamp = msg["timestamp"].strftime("%Y-%m-%d %H:%M:%S")
-            c.send(f"\n[{timestamp}] {msg['user']}: {msg['message']}".encode())
-            
-        clients_list = rooms[current_room_id]
-        
-        
-        # Messaging starts
-        while True:
-            message = c.recv(1024).decode()
-            
-            #exiting chat room
-            if message == 'disconnect' or message == 'exit':
-                stop_message = message
-                c.send("You have left the chat room. Bye!".encode())
-                break
-            
-            save_chat_message(current_room_id, user, message)
-            for client in clients_list:
-                if client != c:
-                    client.send(f"{addr[1]}: {message}".encode())
-            
-        clients_list.remove(c)   
-           
-    return stop_message
-    
-
 
 ################ Starting a new thread ##################
 
 def threaded(c, addr):
-    
     current_room_id = None
     try:
         while True:
@@ -108,57 +37,25 @@ def threaded(c, addr):
 
             if choice == '1': # List all existing chat rooms
                 c.send("Listing existing chat rooms".encode())
-                c.send(f"{list(chat_rooms.keys())} \n".encode())
+                c.send(f"{list(agent.chat_rooms.keys())} \n".encode())
                 
             elif choice == '2': # Create a new chat room
-                while True:
-                    c.send("Enter the chat room id: ".encode())
-                    current_room_id = c.recv(1024).decode()
-                    c.send("Is the chat room private? y/n".encode())
-                    priv = c.recv(1024).decode()
-                    
-                    if priv == 'y':
-                        rooms = chat_rooms_private
-                    else:
-                        rooms = chat_rooms
-                        
-                    if current_room_id in rooms:
-                        c.send("The room already exists. Do you want to give a different room id? y/n".encode())
-                        keep_going = c.recv(1024).decode()
-                        if keep_going != 'y':
-                            current_room_id = None
-                            break
-                    else:
-                        break
+                
+                current_room_id, rooms = agent.create_room(c)
                 
                 if current_room_id:
-                    rooms[current_room_id] = [c]
-                    c.send(f"Created new chat room {current_room_id}".encode())
-                    
-                    stop_message = enter_room(c, addr, rooms, current_room_id)
+                    stop_message = agent.enter_room(c, rooms, current_room_id)
                     if stop_message == 'exit':
                         current_room_id = None
                     elif stop_message == 'disconnect':
                         break
                 
-            elif choice == '3': # Join an existing chat room
-                c.send("Enter the chat room id: ".encode())
-                chat_id = c.recv(1024).decode()
-                all_rooms = {**chat_rooms_private, **chat_rooms}
                 
-                if chat_id not in all_rooms.keys():
-                    c.send("The chat room does not exist. ".encode())
-                elif len(all_rooms[chat_id]) == CHAT_ROOM_LIMIT:
-                    c.send("Chat room limit reached. ".encode())
-                else:   
-                    current_room_id = chat_id
-                    if current_room_id in chat_rooms:
-                        rooms = chat_rooms
-                    elif current_room_id in chat_rooms_private:
-                        rooms = chat_rooms_private
+            elif choice == '3': # Join an existing chat room
+                current_room_id, rooms = agent.join_existing_room(c)
                     
-                    rooms[current_room_id].append(c)   
-                    stop_message = enter_room(c, addr, rooms, current_room_id)
+                if current_room_id:
+                    stop_message = agent.enter_room(c, rooms, current_room_id)
                     if stop_message == 'exit':
                         current_room_id = None
                     elif stop_message == 'disconnect':
@@ -194,7 +91,6 @@ def main():
     
     while True:
         c, addr = s.accept()
-        # print_lock.acquire()
         print('Connected to:', addr[0], ':', addr[1])
         
         client_handler = threading.Thread(target=threaded, args=(c, addr))
